@@ -1,0 +1,997 @@
+---
+title: "HW5"
+author: "Tianxiang Chen"
+date: "11/2/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+
+```{r cars}
+#Model Indentification
+##a.This data set is about the unemplyment rate of U.S.from 1/1/2010 to 1/1/2020.
+#b.This data set is important because the umployment rate can diretly refect how our econmic it is.Normally good econmic have lowunemplyment rate.Lot of people got the lay off during the pandemic, and this cause the extreme high employment rate in the U.S. history.But since the #covid vaacine got approve in this early year, more and more company said that they will consider recruit more employee.
+#So What I want to forecast is whether the employment situation is better now that we have the vaccine but the pandemic still continues.
+inflation_data<-read.csv("C:/Users/Tation'chan/Desktop/pstat 174/UNRATE (2).csv")
+inflation_all<-ts(inflation_data[,2],start = c(2010,1),frequency = 12)
+length(inflation_all)
+inflation <- inflation_all[1:110]
+test <- inflation_all[111:121]
+#plot the data
+ts.plot(inflation,main="10-Year unemployment Rate",gpars=list(xlab="Month", ylab="unemployment Rate"))
+#plot the acf and pacf
+#op <- par(mfrow=c(1,2))
+acf(inflation)
+pacf(inflation)
+#Exist the linear trend from ts
+
+# #Box-Cox Tranformation
+library(MASS)
+t = 1:length(inflation)
+fit = lm(inflation ~ t)
+bcTransform = boxcox(inflation ~ t,plotit = TRUE)
+lambda = bcTransform$x[which(bcTransform$y == max(bcTransform$y))]
+#inflation.bc = (1/lambda)*(inflation^lambda-1)
+inflation.bc=log(inflation)
+hist(inflation)
+hist(inflation.bc)
+#inflation.bc=log(inflation)
+#op <- par(mfrow = c(1,2))
+ts.plot(inflation,main = "Original data",ylab = expression(X[t]))
+ts.plot(inflation.bc,main = "Box-Cox tranformed data", ylab = expression(Y[t]))
+#ACF/PACF of transformed data
+# Calculate the sample variance and plot the acf/pacf
+var(inflation)
+var(inflation.bc)
+acf(inflation.bc,lag.max = 60,main = "acf of 10-Year unemployment Rate")
+pacf(inflation.bc,lag.max = 60,main = "pacf of 10-Year unemployment Rate")
+title("Box-Cox Transformed Time Series", line = -1, outer=TRUE)
+#From the graph of lambda we know that the lambda =1 is in the 95% interval,And compare the Histogram of original and transformation, there is significant different,final we compare the variance, the variance of transformation is less than the original.
+#so we need the Transformation with log. 
+#op = par(mfrow = c(1,2))
+
+# Diference at lag = 1 to remove trend component
+y1 = diff(inflation.bc, 1)
+y2=diff(y1,2)
+var(y1)
+var(y2)
+#no need to diff again since the var increase.
+ts.plot(y1, main = "De-trended data")
+hist(y1)
+#plot(y1,main = "De-trended Time Series",ylab = expression(nabla~Y[t]))
+abline(h = 0,lty = 2)
+#op = par(mfrow = c(1,2))
+acf(y1,lag.max = 60,main = "")
+pacf(y1,lag.max = 60,main = "")
+title("De-trended Time Series", line = -1, outer=TRUE)
+#From the graph of acf and pacf we can see that the list candidate is 
+#d=1,p=1,3,10,q=1,10,12.
+```
+
+```{r}
+#Model Estimation for arima(0,1,1)
+#it<-ar(y1, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+fit.ar<-arima(inflation.bc, order = c(0, 1, 1), method = c("ML"))
+fit.ar
+# 95% CI for coefficient
+c(fit.ar$coef[1]-1.96*0.0883,fit.ar$coef[1]+1.96*0.0883)
+# library(forecast)
+# auto.arima(inflation.bc)
+library(qpcR)
+# Calculate AICc for ARMA models with p and q running from 0 to 3
+for (i in 0:10){for (j in 0:10){ print(i); print(j); print(AICc(arima(inflation.bc, order = c(i,1,j), method = "ML")))}}
+#from the above table we can see that MA(1) has second minimize AICC
+```
+
+
+```{r}
+#stationary and invertiable check
+# it is invertiable since coefficient within|1| and it is pure ma so it is stationary.
+```
+
+```{r}
+#Model Diagnostics for arima(0,1,1)
+fit1 = arima(inflation.bc, order=c(0,1,1), method="ML")
+# Test for independence of residuals
+#Since the n=111 so the lag=sqrt(111) and here only one parameter so fitdf=1.
+res=residuals(fit1)
+Box.test(res,lag = 11,fitdf = 1, type="Ljung")
+Box.test(res,lag = 11,fitdf = 1, type="Box-Pierce")
+Box.test((res)^2,lag = 11,fitdf = 0, type="Ljung")
+#check sigma ^2
+ar(res, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+# Test for normality of residuals
+shapiro.test(residuals(fit1))
+#fitted the residual
+ts.plot(residuals(fit1),main = "Fitted Residuals")
+par(mfrow=c(1,2),oma=c(0,0,2,0))
+# Plot diagnostics of residuals
+op <- par(mfrow=c(2,2))
+# acf
+acf(residuals(fit1),main = "Autocorrelation")
+# pacf
+pacf(residuals(fit1),main = "Partial Autocorrelation")
+# Histogram
+hist(residuals(fit1),main = "Histogram")
+# q-q plot
+qqnorm(residuals(fit1))
+qqline(residuals(fit1),col ="blue")
+# Add overall title
+title("Fitted Residuals Diagnostics", outer=TRUE)
+#From the Box-Ljung test and Box-Pierce test we can saw that the p-value is less than 0.05 so we Reject WN hypothesis.
+#So we do not chose this model.
+```
+
+```{r}
+#Model Estimation for arima(0,1,10)
+#it<-ar(y1, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+fit.ar1<-arima(inflation.bc, order = c(0, 1, 10), method = c("ML"))
+fit.ar1
+# 95% CI for coefficient
+c(fit.ar1$coef[1]-1.96*0.0983,fit.ar1$coef[1]+1.96*0.0983)
+c(fit.ar1$coef[2]-1.96*0.1074,fit.ar1$coef[2]+1.96*0.1074)
+c(fit.ar1$coef[3]-1.96*0.1072,fit.ar1$coef[3]+1.96*0.1072)
+c(fit.ar1$coef[4]-1.96*0.1058,fit.ar1$coef[4]+1.96*0.1058)
+c(fit.ar1$coef[5]-1.96*0.1016,fit.ar1$coef[5]+1.96*0.1016)
+c(fit.ar1$coef[6]-1.96*0.1081,fit.ar1$coef[6]+1.96*0.1081)
+c(fit.ar1$coef[7]-1.96*0.1155,fit.ar1$coef[7]+1.96*0.1155)
+c(fit.ar1$coef[8]-1.96*0.1049,fit.ar1$coef[8]+1.96*0.1049)
+c(fit.ar1$coef[9]-1.96*0.1285,fit.ar1$coef[9]+1.96*0.1285)
+c(fit.ar1$coef[10]-1.96*0.1585,fit.ar1$coef[10]+1.96*0.1585)
+AICc(arima(inflation.bc, order=c(0,1,10), method="ML"))
+#Here ma1,ma5,ma10 not contain 0.
+fit.ar<-arima(inflation.bc, order = c(0, 1, 10), method = c("ML"),fixed = c(NA,0,0,0,NA,0,0,0,0,NA))
+fit.ar
+AICc(arima(inflation.bc, order = c(0, 1, 10), method = c("ML"),fixed = c(NA,0,0,0,NA,0,0,0,0,NA))) 
+# 95% CI for coefficient
+c(fit.ar$coef[1]-1.96*0.0816,fit.ar$coef[1]+1.96*0.0816)
+c(fit.ar$coef[5]-1.96*0.0977,fit.ar$coef[5]+1.96*0.0977)
+c(fit.ar$coef[10]-1.96*0.0835,fit.ar$coef[10]+1.96*0.0835)
+#Compare with two AICC we know that the original model of AICC is less than the model that only have three coefficient, so we use second one.
+```
+```{r}
+#stationary and invertiable check
+polyroot(c(1,-0.1560133,0,0,0,0.283990577,0,0,0,0,0.4327988))
+# the absolute value of complex number root of ma part is not within the|1|,so it is invertible.And this model is pure MA model so it always stationary. 
+#so we chose this model
+```
+
+
+```{r}
+#Model Diagnostics for arima(0,1,10)
+fit1 = arima(inflation.bc, order=c(0,1,10), method="ML")
+# Test for independence of residuals
+#Since the n=111 so the lag=sqrt(111) and here three parameter so fitdf=3.
+res=residuals(fit1)
+Box.test(res,lag = 11,fitdf = 3, type="Ljung")
+Box.test(res,lag = 11,fitdf = 3, type="Box-Pierce")
+Box.test((res)^2,lag = 11,fitdf = 0, type="Ljung")
+# Test for normality of residuals
+shapiro.test(residuals(fit1))
+#check the sigma^2
+ar(res, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+#fitted the residual
+ts.plot(residuals(fit1),main = "Fitted Residuals")
+par(mfrow=c(1,2),oma=c(0,0,2,0))
+# Plot diagnostics of residuals
+op <- par(mfrow=c(2,2))
+# acf
+acf(residuals(fit1),main = "Autocorrelation")
+# pacf
+pacf(residuals(fit1),main = "Partial Autocorrelation")
+# Histogram
+hist(residuals(fit1),main = "Histogram")
+# q-q plot
+qqnorm(residuals(fit1))
+qqline(residuals(fit1),col ="blue")
+# Add overall title
+title("Fitted Residuals Diagnostics", outer=TRUE)
+#From the Box-Ljung test, Box-Pierce test and McLeod-Li test we can saw that the p-value is large than 0.05 so we not Reject WN hypothesis.
+#And the residual are independent then the squares should be uncorrelated
+##From the Shapiro-Wilk normality test and histogram we know that the residual are normality.
+#So we chose this model.
+```
+
+
+```{r}
+#Model Estimation for arima(1,1,10)
+#it<-ar(y1, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+fit.ar1<-arima(inflation.bc, order = c(1, 1, 10), method = c("ML"))
+fit.ar1
+# 95% CI for coefficient
+c(fit.ar1$coef[1]-1.96*0.2385,fit.ar1$coef[1]+1.96*0.2385)
+c(fit.ar1$coef[2]-1.96*0.2335,fit.ar1$coef[2]+1.96*0.2335)
+c(fit.ar1$coef[3]-1.96*0.1351,fit.ar1$coef[3]+1.96*0.1351)
+c(fit.ar1$coef[4]-1.96*0.1171,fit.ar1$coef[4]+1.96*0.1171)
+c(fit.ar1$coef[5]-1.96*0.1184,fit.ar1$coef[5]+1.96*0.1184)
+c(fit.ar1$coef[6]-1.96*0.1368,fit.ar1$coef[6]+1.96*0.1368)
+c(fit.ar1$coef[7]-1.96*0.1193,fit.ar1$coef[7]+1.96*0.1193)
+c(fit.ar1$coef[8]-1.96* 0.1095,fit.ar1$coef[8]+1.96* 0.1095)
+c(fit.ar1$coef[9]-1.96*0.1031,fit.ar1$coef[9]+1.96*0.1031)
+c(fit.ar1$coef[10]-1.96*0.1533,fit.ar1$coef[10]+1.96*0.1533)
+c(fit.ar1$coef[11]-1.96*0.1681,fit.ar1$coef[11]+1.96*0.1681)
+AICc(arima(inflation.bc, order=c(1,1,10), method="ML"))
+#From the 95% cl of coefficient,we know that the coefficient of ar1 and ma1-ma9 contain so arima(0,1,10) might work.The result show above
+#And here the number coefficent is 11 so is eqaul to the lag=11 so the Model Diagnostics for arima(1,1,10) can't perform.
+```
+
+
+
+
+
+```{r}
+#Model Estimation for arima(3,1,0)
+#it<-ar(y1, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+fit.ar<-arima(inflation.bc, order = c(3, 1, 0), method = c("ML"))
+fit.ar
+# 95% CI for coefficient
+c(fit.ar$coef[1]-1.96*0.0970,fit.ar$coef[1]+1.96*0.0970)
+c(fit.ar$coef[2]-1.96*0.0979,fit.ar$coef[2]+1.96*0.0979)
+c(fit.ar$coef[3]-1.96*0.0972,fit.ar$coef[3]+1.96*0.0972)
+```
+```{r}
+#stationary andd inversiable check
+polyroot(c(1,-0.34052089,0.2255879,-0.1967218))
+#stationary since the abs of root is greater then the |1| and it is pure ar so invertiable.
+```
+
+
+
+```{r}
+#Model Diagnostics for arima(3,1,0)
+fit1 = arima(inflation.bc, order=c(3,1,0), method="ML")
+# Test for independence of residuals
+#Since the n=111 so the lag=sqrt(111) and here three parameter so fitdf=3.
+res=residuals(fit1)
+Box.test(res,lag = 11,fitdf = 3, type="Ljung")
+Box.test(res,lag = 11,fitdf = 3, type="Box-Pierce")
+Box.test((res)^2,lag = 11,fitdf = 0, type="Ljung")
+#check the sigma^2
+ar(res, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+# Test for normality of residuals
+shapiro.test(residuals(fit1))
+#fitted the residual
+ts.plot(residuals(fit1),main = "Fitted Residuals")
+par(mfrow=c(1,2),oma=c(0,0,2,0))
+# Plot diagnostics of residuals
+op <- par(mfrow=c(2,2))
+# acf
+acf(residuals(fit1),main = "Autocorrelation")
+# pacf
+pacf(residuals(fit1),main = "Partial Autocorrelation")
+# Histogram
+hist(residuals(fit1),main = "Histogram")
+# q-q plot
+qqnorm(residuals(fit1))
+qqline(residuals(fit1),col ="blue")
+# Add overall title
+title("Fitted Residuals Diagnostics", outer=TRUE)
+#From the Box-Ljung test and Box-Pierce test we can saw that the p-value is Less than 0.05 so we Reject WN hypothesis.
+#So we do not chose this model.
+```
+
+
+```{r}
+#Model Estimation for arima(1,1,0)
+#it<-ar(y1, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+fit.ar<-arima(inflation.bc, order = c(1, 1, 0), method = c("ML"))
+fit.ar
+# 95% CI for coefficient
+c(fit.ar$coef[1]-1.96*0.0960,fit.ar$coef[1]+1.96*0.0960)
+```
+```{r}
+#check the stationary and invertiable 
+#the coefficient is within the |1| so it is stationary and it is pure ar so it is invertiable.
+```
+
+
+```{r}
+#Model Diagnostics for arima(1,1,0)
+fit1 = arima(inflation.bc, order=c(1,1,0), method="ML")
+# Test for independence of residuals
+#Since the n=111 so the lag=sqrt(111) and here only one parameter so fitdf=1.
+res=residuals(fit1)
+Box.test(res,lag = 11,fitdf = 1, type="Ljung")
+Box.test(res,lag = 11,fitdf = 1, type="Box-Pierce")
+Box.test((res)^2,lag = 11,fitdf = 0, type="Ljung")
+#check the sigma^2
+ar(res, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+# Test for normality of residuals
+shapiro.test(residuals(fit1))
+#fitted the residual
+ts.plot(residuals(fit1),main = "Fitted Residuals")
+par(mfrow=c(1,2),oma=c(0,0,2,0))
+# Plot diagnostics of residuals
+op <- par(mfrow=c(2,2))
+# acf
+acf(residuals(fit1),main = "Autocorrelation")
+# pacf
+pacf(residuals(fit1),main = "Partial Autocorrelation")
+# Histogram
+hist(residuals(fit1),main = "Histogram")
+# q-q plot
+qqnorm(residuals(fit1))
+qqline(residuals(fit1),col ="blue")
+# Add overall title
+title("Fitted Residuals Diagnostics", outer=TRUE)
+#From the Box-Ljung test and Box-Pierce test we can saw that the p-value is less than 0.05 so we Reject WN hypothesis.
+#So we do not chose this model.
+
+```
+
+
+```{r}
+#Model Estimation for arima(1,1,1)
+#it<-ar(y1, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+fit.ar<-arima(inflation.bc, order = c(1, 1, 1), method = c("ML"))
+fit.ar
+# 95% CI for coefficient
+c(fit.ar$coef[1]-1.96*0.1792,fit.ar$coef[1]+1.96*0.1792)
+c(fit.ar$coef[2]-1.96*0.2227,fit.ar$coef[2]+1.96*0.2227)
+```
+```{r}
+#This model might not be stationary and invertible since the coefficient contain the number greater than |1|.
+```
+
+
+
+```{r}
+#Model Diagnostics for arima(1,1,1)
+fit1 = arima(inflation.bc, order=c(1,1,1), method="ML")
+# Test for independence of residuals
+#Since the n=111 so the lag=sqrt(111) and here only two parameter so fitdf=2.
+res=residuals(fit1)
+Box.test(res,lag = 11,fitdf = 2, type="Ljung")
+Box.test(res,lag = 11,fitdf = 2, type="Box-Pierce")
+Box.test((res)^2,lag = 11,fitdf = 0, type="Ljung")
+#check the sigma^2
+ar(res, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+# Test for normality of residuals
+shapiro.test(residuals(fit1))
+#fitted the residual
+ts.plot(residuals(fit1),main = "Fitted Residuals")
+par(mfrow=c(1,2),oma=c(0,0,2,0))
+# Plot diagnostics of residuals
+op <- par(mfrow=c(2,2))
+# acf
+acf(residuals(fit1),main = "Autocorrelation")
+# pacf
+pacf(residuals(fit1),main = "Partial Autocorrelation")
+# Histogram
+hist(residuals(fit1),main = "Histogram")
+# q-q plot
+qqnorm(residuals(fit1))
+qqline(residuals(fit1),col ="blue")
+# Add overall title
+title("Fitted Residuals Diagnostics", outer=TRUE)
+#From the Box-Ljung test and Box-Pierce test we can saw that the p-value is Not large than 0.05 so we Reject WN hypothesis.
+#So we do not chose this model.
+```
+
+
+```{r}
+#Model Estimation for arima(3,1,1)
+#it<-ar(y1, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+fit.ar<-arima(inflation.bc, order = c(3, 1, 1), method = c("ML"))
+fit.ar
+AICc(arima(inflation.bc, order = c(3, 1, 1), method = c("ML")))
+# 95% CI for coefficient
+c(fit.ar$coef[1]-1.96*0.0960,fit.ar$coef[1]+1.96*0.0960)
+c(fit.ar$coef[2]-1.96*0.1144,fit.ar$coef[2]+1.96*0.1144)
+c(fit.ar$coef[3]-1.96*0.0965,fit.ar$coef[3]+1.96*0.0965)
+c(fit.ar$coef[4]-1.96*0.0269,fit.ar$coef[4]+1.96*0.0269)
+fit.ar<-arima(inflation.bc, order = c(3, 1, 1), method = c("ML"),fixed = c(NA,0,0,NA),transform.pars = FALSE)
+fit.ar
+AICc(arima(inflation.bc, order = c(3, 1, 1), method = c("ML"),fixed = c(NA,0,0,NA),transform.pars = FALSE))
+#From the 95% Cl we know that arima may work since second and third coefficient contain 0.But above show that arima(1,1) not fit.  
+```
+```{r}
+#check the stationary and invertiable 
+polyroot(c(1,-1.017503,-0.224224,-0.18914))#ar part
+polyroot(c(1,0.6715819))#ma part
+#not stationary since has root within the |1|.
+```
+
+
+```{r}
+#Model Diagnostics for arima(3,1,1)
+fit1 = arima(inflation.bc, order=c(3,1,1), method="ML")
+# Test for independence of residuals
+#Since the n=111 so the lag=sqrt(111) and here four parameter so fitdf=4.
+res=residuals(fit1)
+Box.test(res,lag = 11,fitdf = 4, type="Ljung")
+Box.test(res,lag = 11,fitdf = 4, type="Box-Pierce")
+Box.test((res)^2,lag = 11,fitdf = 0, type="Ljung")
+#check the sigma^2
+ar(res, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+# Test for normality of residuals
+shapiro.test(residuals(fit1))
+#fitted the residual
+ts.plot(residuals(fit1),main = "Fitted Residuals")
+par(mfrow=c(1,2),oma=c(0,0,2,0))
+# Plot diagnostics of residuals
+op <- par(mfrow=c(2,2))
+# acf
+acf(residuals(fit1),main = "Autocorrelation")
+# pacf
+pacf(residuals(fit1),main = "Partial Autocorrelation")
+# Histogram
+hist(residuals(fit1),main = "Histogram")
+# q-q plot
+qqnorm(residuals(fit1))
+qqline(residuals(fit1),col ="blue")
+# Add overall title
+title("Fitted Residuals Diagnostics", outer=TRUE)
+#From the Box-Ljung test and Box-Pierce test we can saw that the p-value is Less than 0.05 so we Reject WN hypothesis.
+#So we do not chose this model.
+```
+
+
+
+```{r}
+#Model Estimation for arima(10,1,0)
+#it<-ar(y1, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+fit.ar<-arima(inflation.bc, order = c(10, 1, 0),method = c("ML"))
+fit.ar
+AICc(arima(inflation.bc, order = c(10, 1, 0), method = c("ML")))
+# 95% CI for coefficient
+c(fit.ar$coef[1]-1.96*0.0916,fit.ar$coef[1]+1.96*0.0916)
+c(fit.ar$coef[2]-1.96*0.0965,fit.ar$coef[2]+1.96*0.0965)
+c(fit.ar$coef[3]-1.96*0.0984,fit.ar$coef[3]+1.96*0.0984)
+c(fit.ar$coef[4]-1.96*0.0999,fit.ar$coef[4]+1.96*0.0999)
+c(fit.ar$coef[5]-1.96*0.0965,fit.ar$coef[5]+1.96*0.0965)
+c(fit.ar$coef[6]-1.96*0.0963,fit.ar$coef[6]+1.96*0.0963)
+c(fit.ar$coef[7]-1.96*0.0965,fit.ar$coef[7]+1.96*0.0965)
+c(fit.ar$coef[8]-1.96*0.1023,fit.ar$coef[8]+1.96*0.1023)
+c(fit.ar$coef[9]-1.96*0.1000,fit.ar$coef[9]+1.96*0.1000)
+c(fit.ar$coef[10]-1.96*0.1004,fit.ar$coef[10]+1.96*0.1004)
+#Here ar1,ar7,ar10 not contain 0.
+
+fit.ar1<-arima(inflation.bc, order = c(10, 1, 0),method = c("ML"),fixed = c(NA,0,0,0,0,0,NA,0,0,NA),transform.pars = FALSE)
+fit.ar1
+AICc(arima(inflation.bc, order = c(10, 1, 0), method = c("ML"),fixed = c(NA,0,0,0,0,0,NA,0,0,NA),transform.pars = FALSE))
+# 95% CI for coefficient
+c(fit.ar1$coef[1]-1.96*0.0077,fit.ar1$coef[1]+1.96*0.0077)
+c(fit.ar1$coef[7]-1.96*0.0093,fit.ar1$coef[7]+1.96*0.0093)
+c(fit.ar1$coef[10]-1.96*0.0077,fit.ar1$coef[10]+1.96*0.0077)
+#Compare with two AICC we know that the original model of AICC is less than the model that only have three coefficient, so we use original one.
+```
+
+
+
+```{r}
+#stationary and invertiable check
+polyroot(c(1,-0.2933,-0.1361,-0.1306,0.1742,0.1370,0.2284,0.2428,0.0500,0.1004,0.3219))
+# the absolute value of complex number root of AR part is not within the|1|,so it is stationary.And this model is pure AR model so it always invertiable.
+#inveribale so we chose this model
+```
+
+```{r}
+#Model Diagnostics for arima(10,1,0)
+fit1 = arima(inflation.bc, order=c(10,1,0), method="ML")
+# Test for independence of residuals
+#Since the n=111 so the lag=sqrt(111) and here ten parameter so fitdf=10.
+res=residuals(fit1)
+Box.test(res,lag = 11,fitdf = 10, type="Ljung")
+Box.test(res,lag = 11,fitdf = 10, type="Box-Pierce")
+Box.test((res)^2,lag = 11,fitdf = 0, type="Ljung")
+#check the sigma^2
+ar(res, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+# Test for normality of residuals
+shapiro.test(residuals(fit1))
+#fitted the residual
+ts.plot(residuals(fit1),main = "Fitted Residuals")
+par(mfrow=c(1,2),oma=c(0,0,2,0))
+# Plot diagnostics of residuals
+op <- par(mfrow=c(2,2))
+# acf
+acf(residuals(fit1),main = "Autocorrelation")
+# pacf
+pacf(residuals(fit1),main = "Partial Autocorrelation")
+# Histogram
+hist(residuals(fit1),main = "Histogram")
+# q-q plot
+qqnorm(residuals(fit1))
+qqline(residuals(fit1),col ="blue")
+# Add overall title
+title("Fitted Residuals Diagnostics", outer=TRUE)
+#From the Box-Ljung test and Box-Pierce test we can saw that the p-value is less than 0.05 so we Reject WN hypothesis.
+#So we do not chose this model.
+```
+
+
+```{r}
+#Model Estimation for arima(10,1,1)
+#it<-ar(y1, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+fit.ar<-arima(inflation.bc, order = c(10, 1, 1),method = c("ML"))
+fit.ar
+AICc(arima(inflation.bc, order = c(10, 1, 1), method = c("ML")))
+# 95% CI for coefficient
+c(fit.ar$coef[1]-1.96*0.1899,fit.ar$coef[1]+1.96*0.1899)
+c(fit.ar$coef[2]-1.96*0.1048,fit.ar$coef[2]+1.96*0.1048)
+c(fit.ar$coef[3]-1.96*0.0967,fit.ar$coef[3]+1.96*0.0967)
+c(fit.ar$coef[4]-1.96*0.0972,fit.ar$coef[4]+1.96*0.0972)
+c(fit.ar$coef[5]-1.96*0.1012,fit.ar$coef[5]+1.96*0.1012)
+c(fit.ar$coef[6]-1.96*0.0977,fit.ar$coef[6]+1.96*0.0977)
+c(fit.ar$coef[7]-1.96*0.1082,fit.ar$coef[7]+1.96*0.1082)
+c(fit.ar$coef[8]-1.96*0.1049,fit.ar$coef[8]+1.96*0.1049)
+c(fit.ar$coef[9]-1.96*0.0948,fit.ar$coef[9]+1.96*0.0948)
+c(fit.ar$coef[10]-1.96*0.1019,fit.ar$coef[10]+1.96*0.1019)
+c(fit.ar$coef[11]-1.96*0.1909,fit.ar$coef[11]+1.96*0.1909)
+#Here ar4,ar10,ma1 not contain 0.
+fit.ar1<-arima(inflation.bc, order = c(10, 1, 1),method = c("ML"),fixed = c(0,0,0,NA,0,0,0,0,0,NA,NA),transform.pars = FALSE)
+fit.ar1
+AICc(arima(inflation.bc, order = c(10, 1, 1), method = c("ML"),fixed = c(0,0,0,NA,0,0,0,0,0,NA,NA),transform.pars = FALSE))
+# 95% CI for coefficient
+c(fit.ar1$coef[4]-1.96*0.0077,fit.ar1$coef[4]+1.96*0.0077)
+c(fit.ar1$coef[10]-1.96*0.0093,fit.ar1$coef[10]+1.96*0.0093)
+c(fit.ar1$coef[11]-1.96*0.0077,fit.ar1$coef[11]+1.96*0.0077)
+#Compare with two AICC we know that the original model of AICC is greater than the model that only have three coefficient, so we use second one.
+```
+
+
+```{r}
+#stationary and invertiable check
+polyroot(c(1,0,0,0,0.2128,0,0,0,0,0,0.4343))
+polyroot(c(1,-0.3330))
+# the absolute value of complex number root of AR part is not within the|1|,so it is stationary
+#the absolute value of complex number root of ma part is not within the|1|,so it is invertible. 
+#so we chose this model
+```
+```{r}
+#Model Diagnostics for arima(10,1,1)
+fit1 = arima(inflation.bc, order=c(10,1,1), method="ML")
+# Test for independence of residuals
+#Since the n=111 so the lag=sqrt(111) and here three parameter so fitdf=3.
+res=residuals(fit1)
+Box.test(res,lag = 11,fitdf = 3, type="Ljung")
+Box.test(res,lag = 11,fitdf = 3, type="Box-Pierce")
+Box.test((res)^2,lag = 11,fitdf = 0, type="Ljung")
+#check the sigma^2
+ar(res, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+# Test for normality of residuals
+shapiro.test(residuals(fit1))
+#fitted the residual
+ts.plot(residuals(fit1),main = "Fitted Residuals")
+par(mfrow=c(1,2),oma=c(0,0,2,0))
+# Plot diagnostics of residuals
+op <- par(mfrow=c(2,2))
+# acf
+acf(residuals(fit1),main = "Autocorrelation")
+# pacf
+pacf(residuals(fit1),main = "Partial Autocorrelation")
+# Histogram
+hist(residuals(fit1),main = "Histogram")
+# q-q plot
+qqnorm(residuals(fit1))
+qqline(residuals(fit1),col ="blue")
+# Add overall title
+title("Fitted Residuals Diagnostics", outer=TRUE)
+#From the Box-Ljung test, Box-Pierce test and McLeod-Li test we can saw that the p-value is large than 0.05 so we not Reject WN hypothesis.
+#And the residual are independent then the squares should be uncorrelated
+##From the Shapiro-Wilk normality test and histogram we know that the residual are normality.
+#So we chose this model.
+```
+
+```{r}
+#Model Estimation for arima(10,1,10)
+#it<-ar(y1, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+fit.ar<-arima(inflation.bc, order = c(10, 1, 10),method = c("ML"))
+fit.ar
+AICc(arima(inflation.bc, order = c(10, 1, 10), method = c("ML")))
+# 95% CI for coefficient
+c(fit.ar$coef[1]-1.96*0.1395,fit.ar$coef[1]+1.96*0.1395)
+c(fit.ar$coef[2]-1.96*0.1249,fit.ar$coef[2]+1.96*0.1249)
+c(fit.ar$coef[3]-1.96*0.1154,fit.ar$coef[3]+1.96*0.1154)
+c(fit.ar$coef[4]-1.96*0.0867,fit.ar$coef[4]+1.96*0.0867)
+c(fit.ar$coef[5]-1.96*0.0913,fit.ar$coef[5]+1.96*0.0913)
+c(fit.ar$coef[6]-1.96*0.0851,fit.ar$coef[6]+1.96*0.0851)
+c(fit.ar$coef[7]-1.96*0.0723,fit.ar$coef[7]+1.96*0.0723)
+c(fit.ar$coef[8]-1.96*0.1214,fit.ar$coef[8]+1.96*0.1214)
+c(fit.ar$coef[9]-1.96*0.1183,fit.ar$coef[9]+1.96*0.1183)
+c(fit.ar$coef[10]-1.96*0.1239,fit.ar$coef[10]+1.96*0.1239)
+c(fit.ar$coef[11]-1.96*0.1914,fit.ar$coef[11]+1.96*0.1914)
+c(fit.ar$coef[12]-1.96*0.2052,fit.ar$coef[12]+1.96*0.2052)
+c(fit.ar$coef[13]-1.96*0.1808,fit.ar$coef[13]+1.96*0.1808)
+c(fit.ar$coef[14]-1.96*0.1553,fit.ar$coef[14]+1.96*0.1553)
+c(fit.ar$coef[15]-1.96*0.1757,fit.ar$coef[15]+1.96*0.1757)
+c(fit.ar$coef[16]-1.96*0.1372,fit.ar$coef[16]+1.96*0.1372)
+c(fit.ar$coef[17]-1.96*0.1263,fit.ar$coef[17]+1.96*0.1263)
+c(fit.ar$coef[18]-1.96*0.2197,fit.ar$coef[18]+1.96*0.2197)
+c(fit.ar$coef[19]-1.96*0.2211,fit.ar$coef[19]+1.96*0.2211)
+c(fit.ar$coef[20]-1.96*0.2057,fit.ar$coef[20]+1.96*0.2057)
+#here ar3,ar4,ar6,ar7,ar10,ma5,ma6,ma7 not contain 0
+fit.ar1<-arima(inflation.bc, order = c(10, 1, 10),method = c("ML"),fixed = c(0,0,NA,NA,0,NA,NA,0,0,NA,0,0,0,0,NA,NA,NA,0,0,0),transform.pars = FALSE)
+fit.ar1
+AICc(arima(inflation.bc, order = c(10, 1, 10), method = c("ML"),fixed = c(0,0,NA,NA,0,NA,NA,0,0,NA,0,0,0,0,NA,NA,NA,0,0,0),transform.pars = FALSE))
+# 95% CI for coefficient
+c(fit.ar1$coef[3]-1.96*0.0996,fit.ar1$coef[3]+1.96*0.0996)
+c(fit.ar1$coef[4]-1.96*0.0880,fit.ar1$coef[4]+1.96*0.0880)
+c(fit.ar1$coef[6]-1.96*0.1130,fit.ar1$coef[6]+1.96*0.1130)
+c(fit.ar1$coef[7]-1.96*0.1695,fit.ar1$coef[7]+1.96*0.1695)
+c(fit.ar1$coef[10]-1.96*0.1074,fit.ar1$coef[10]+1.96*0.1074)
+c(fit.ar1$coef[15]-1.96*0.1230,fit.ar1$coef[15]+1.96*0.1230)
+c(fit.ar1$coef[16]-1.96*0.1671,fit.ar1$coef[16]+1.96*0.1671)
+c(fit.ar1$coef[17]-1.96*0.1848,fit.ar1$coef[17]+1.96*0.1848)
+#Here since coefficient of ar7,10 and ma7 not contain 0 so arima(10,1,7) might work but
+##Compare with two AICC we know that the original model of AICC is less than the model that only have eight coefficient, so we use original one.
+#Here the number of coefficent is larger than lag=11 so can't perfrom Model Diagnostics for arima(10,1,10)
+```
+
+
+
+
+```{r}
+#Model Estimation for arima(0,1,12)
+#it<-ar(y1, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+fit.ar<-arima(inflation.bc, order = c(0, 1, 12),method = c("ML"))
+fit.ar
+AICc(arima(inflation.bc, order = c(0, 1, 12), method = c("ML")))
+# 95% CI for coefficient
+c(fit.ar$coef[1]-1.96*0.1236,fit.ar$coef[1]+1.96*0.1236)
+c(fit.ar$coef[2]-1.96*0.1019,fit.ar$coef[2]+1.96*0.1019)
+c(fit.ar$coef[3]-1.96*0.0968,fit.ar$coef[3]+1.96*0.0968)
+c(fit.ar$coef[4]-1.96*0.119,fit.ar$coef[4]+1.96*0.119)
+c(fit.ar$coef[5]-1.96*0.1173,fit.ar$coef[5]+1.96*0.1173)
+c(fit.ar$coef[6]-1.96*0.1102,fit.ar$coef[6]+1.96*0.1102)
+c(fit.ar$coef[7]-1.96*0.1127,fit.ar$coef[7]+1.96*0.1127)
+c(fit.ar$coef[8]-1.96*0.1179,fit.ar$coef[8]+1.96*0.1179)
+c(fit.ar$coef[9]-1.96*0.1024,fit.ar$coef[9]+1.96*0.1024)
+c(fit.ar$coef[10]-1.96*0.1153,fit.ar$coef[10]+1.96*0.1153)
+c(fit.ar$coef[11]-1.96*0.1255,fit.ar$coef[11]+1.96*0.1255)
+c(fit.ar$coef[12]-1.96*0.0956,fit.ar$coef[12]+1.96*0.0956)
+
+#From the 95% cl the coefficient of ma 1,4,6,,10,12 not contain 0.
+fit.ar1<-arima(inflation.bc, order = c(0, 1, 12),method = c("ML"),fixed = c(NA,0,0,NA,0,NA,0,0,0,NA,0,NA),transform.pars = FALSE)
+fit.ar1
+AICc(arima(inflation.bc, order = c(0, 1, 12), method = c("ML"),fixed = c(NA,0,0,NA,0,NA,0,0,0,NA,0,NA),transform.pars = FALSE))
+# 95% CI for coefficient
+c(fit.ar1$coef[1]-1.96*0.0940 ,fit.ar1$coef[1]+1.96*0.0940)
+c(fit.ar1$coef[4]-1.96*0.0904,fit.ar1$coef[4]+1.96*0.0904)
+c(fit.ar1$coef[6]-1.96*0.1021,fit.ar1$coef[6]+1.96*0.1021)
+c(fit.ar1$coef[10]-1.96*0.0850,fit.ar1$coef[10]+1.96*0.0850)
+c(fit.ar1$coef[12]-1.96*0.1021,fit.ar1$coef[12]+1.96*0.0960)
+#Compare with two AICC we know that the original model of AICC is greater than the model that only have five coefficient, so we use second one.
+```
+
+
+```{r}
+#stationary and invertiable check
+polyroot(c(1,-0.5028762,0,0,0.10555685,0,0.24,0,0,0,0.10754304,0,-0.007742433))#Find the root of MA part 
+# the absolute value of complex number root of ma part is not within the|1|,so it is invertible.And this model is pure MA model so it always stationary. 
+#so we chose this model
+```
+
+```{r}
+#Model Diagnostics for arima(0,1,12)
+fit1 = arima(inflation.bc, order=c(0,1,12), method="ML")
+# Test for independence of residuals
+#Since the n=111 so the lag=sqrt(111) and here five parameters so fitdf=5.
+res=residuals(fit1)
+Box.test(res,lag = 11,fitdf = 5, type="Ljung")
+Box.test(res,lag = 11,fitdf = 5, type="Box-Pierce")
+Box.test((res)^2,lag = 11,fitdf = 0, type="Ljung")
+# Test for normality of residuals
+shapiro.test(residuals(fit1))
+#fitted the residual
+ts.plot(residuals(fit1),main = "Fitted Residuals")
+par(mfrow=c(1,2),oma=c(0,0,2,0))
+# Plot diagnostics of residuals
+op <- par(mfrow=c(2,2))
+# acf
+acf(residuals(fit1),main = "Autocorrelation")
+# pacf
+pacf(residuals(fit1),main = "Partial Autocorrelation")
+# Histogram
+hist(residuals(fit1),main = "Histogram")
+# q-q plot
+qqnorm(residuals(fit1))
+qqline(residuals(fit1),col ="blue")
+# Add overall title
+title("Fitted Residuals Diagnostics", outer=TRUE)
+#From the Box-Ljung test, Box-Pierce test and McLeod-Li test we can saw that the p-value is large than 0.05 so we not Reject WN hypothesis.
+#And the residual are independent then the squares should be uncorrelated
+##From the Shapiro-Wilk normality test and histogram we know that the residual are normality.
+#So we chose this model.
+```
+
+
+
+```{r}
+#Model Estimation for arima(1,1,12)
+#it<-ar(y1, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+fit.ar<-arima(inflation.bc, order = c(1, 1, 12),method = c("ML"))
+fit.ar
+AICc(arima(inflation.bc, order = c(1, 1, 12), method = c("ML")))
+# 95% CI for coefficient
+c(fit.ar$coef[1]-1.96*0.3242,fit.ar$coef[1]+1.96*0.3242)
+c(fit.ar$coef[2]-1.96*0.3274,fit.ar$coef[2]+1.96*0.3274)
+c(fit.ar$coef[3]-1.96*0.1336,fit.ar$coef[3]+1.96*0.1336)
+c(fit.ar$coef[4]-1.96*0.1037,fit.ar$coef[4]+1.96*0.1037)
+c(fit.ar$coef[5]-1.96*0.1262,fit.ar$coef[5]+1.96*0.1262)
+c(fit.ar$coef[6]-1.96*0.1406,fit.ar$coef[6]+1.96*0.1406)
+c(fit.ar$coef[7]-1.96*0.1237,fit.ar$coef[7]+1.96*0.1237)
+c(fit.ar$coef[8]-1.96*0.1621,fit.ar$coef[8]+1.96*0.1621)
+c(fit.ar$coef[9]-1.96*0.1380,fit.ar$coef[9]+1.96*0.1380)
+c(fit.ar$coef[10]-1.96*0.1069,fit.ar$coef[10]+1.96*0.1069)
+c(fit.ar$coef[11]-1.96*0.1105,fit.ar$coef[11]+1.96*0.1105)
+c(fit.ar$coef[12]-1.96*0.1317,fit.ar$coef[12]+1.96*0.1317)
+c(fit.ar$coef[13]-1.96*0.0989,fit.ar$coef[13]+1.96*0.0989)
+#From the 95% cl interval ma4,ma6,ma12 not contain 0,so the model arima (0,1,12) might work and the result show above.
+#The number of coefficient for this model is greater than lag=11 so can't perform Model Diagnostics for arima(1,1,12)
+```
+
+
+```{r}
+#Model Estimation for arima(10,1,12)
+#it<-ar(y1, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+fit.ar<-arima(inflation.bc, order = c(10, 1, 12),method = c("ML"))
+fit.ar
+AICc(arima(inflation.bc, order = c(10, 1, 12), method = c("ML")))
+# 95% CI for coefficient
+c(fit.ar$coef[1]-1.96*0.2768,fit.ar$coef[1]+1.96*0.2768)
+c(fit.ar$coef[2]-1.96*0.2656,fit.ar$coef[2]+1.96*0.2656)
+c(fit.ar$coef[3]-1.96*0.2460,fit.ar$coef[3]+1.96*0.2460)
+c(fit.ar$coef[4]-1.96*0.1639,fit.ar$coef[4]+1.96*0.1639)
+c(fit.ar$coef[5]-1.96*0.1988,fit.ar$coef[5]+1.96*0.1988)
+c(fit.ar$coef[6]-1.96*0.1981,fit.ar$coef[6]+1.96*0.1981)
+c(fit.ar$coef[7]-1.96*0.1595,fit.ar$coef[7]+1.96*0.1595)
+c(fit.ar$coef[8]-1.96*0.2320,fit.ar$coef[8]+1.96*0.2320)
+c(fit.ar$coef[9]-1.96*0.2091,fit.ar$coef[9]+1.96*0.2091)
+c(fit.ar$coef[10]-1.96*0.2151,fit.ar$coef[10]+1.96*0.2151)
+c(fit.ar$coef[11]-1.96*0.2901,fit.ar$coef[11]+1.96*0.2901)
+c(fit.ar$coef[12]-1.96*0.2295,fit.ar$coef[12]+1.96*0.2295)
+c(fit.ar$coef[13]-1.96*0.2409,fit.ar$coef[13]+1.96*0.2409)
+c(fit.ar$coef[14]-1.96*0.1432,fit.ar$coef[14]+1.96*0.1432)
+c(fit.ar$coef[15]-1.96*0.1919,fit.ar$coef[15]+1.96*0.1919)
+c(fit.ar$coef[16]-1.96*0.1614,fit.ar$coef[16]+1.96*0.1614)
+c(fit.ar$coef[17]-1.96*0.1578,fit.ar$coef[17]+1.96*0.1578)
+c(fit.ar$coef[18]-1.96*0.2092,fit.ar$coef[18]+1.96*0.2092)
+c(fit.ar$coef[19]-1.96*0.1495,fit.ar$coef[19]+1.96*0.1495)
+c(fit.ar$coef[20]-1.96*0.2895,fit.ar$coef[20]+1.96*0.2895)
+c(fit.ar$coef[21]-1.96*0.1664,fit.ar$coef[21]+1.96*0.1664)
+c(fit.ar$coef[22]-1.96*0.1492,fit.ar$coef[22]+1.96*0.1492)
+#Here ar7 ar10, ma7,ma9,ma12 not contain 0.
+fit.ar1<-arima(inflation.bc, order = c(10, 1, 12),method = c("ML"),fixed = c(0,0,0,0,0,0,NA,0,0,NA,0,0,0,0,0,0,NA,0,NA,0,0,NA),transform.pars = FALSE)
+fit.ar1
+AICc(arima(inflation.bc, order = c(10, 1, 12), method = c("ML"),fixed = c(0,0,0,0,0,0,NA,0,0,NA,0,0,0,0,0,0,NA,0,NA,0,0,NA),transform.pars = FALSE))
+##Compare with two AICC we know that the original model of AICC is less than the model that only have five coefficient, so we use original one.
+#Here the number of coefficent is larger than lag=11 so can't perfrom Model Diagnostics for arima(10,1,12)
+
+
+```
+
+
+
+
+
+```{r}
+#Model Estimation for arima(3,1,10)
+#it<-ar(y1, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+fit.ar<-arima(inflation.bc, order = c(3, 1, 10),method = c("ML"))
+fit.ar
+AICc(arima(inflation.bc, order = c(3, 1, 10), method = c("ML")))
+# 95% CI for coefficient
+c(fit.ar$coef[1]-1.96*0.0584,fit.ar$coef[1]+1.96*0.0584)
+c(fit.ar$coef[2]-1.96*0.0510,fit.ar$coef[2]+1.96*0.0510)
+c(fit.ar$coef[3]-1.96*0.0620,fit.ar$coef[3]+1.96*0.0620)
+c(fit.ar$coef[4]-1.96*0.1632,fit.ar$coef[4]+1.96*0.1632)
+c(fit.ar$coef[5]-1.96*0.1479,fit.ar$coef[5]+1.96*0.1479)
+c(fit.ar$coef[6]-1.96*0.2012,fit.ar$coef[6]+1.96*0.2012)
+c(fit.ar$coef[7]-1.96*0.2067,fit.ar$coef[7]+1.96*0.2067)
+c(fit.ar$coef[8]-1.96*0.1985,fit.ar$coef[8]+1.96*0.1985)
+c(fit.ar$coef[9]-1.96*0.2188,fit.ar$coef[9]+1.96*0.2188)
+c(fit.ar$coef[10]-1.96*0.2055,fit.ar$coef[10]+1.96*0.2055)
+c(fit.ar$coef[11]-1.96*0.1703,fit.ar$coef[11]+1.96*0.1703)
+c(fit.ar$coef[12]-1.96*0.1471,fit.ar$coef[12]+1.96*0.1471)
+c(fit.ar$coef[13]-1.96*0.1242,fit.ar$coef[13]+1.96*0.1242)
+#Here ar1,ar3,ma1,ma3,ma4,ma10 not contain 0
+
+fit.ar1<-arima(inflation.bc, order = c(3, 1, 10),method = c("ML"),fixed = c(NA,0,NA,NA,0,NA,NA,0,0,0,0,0,NA),transform.pars = FALSE)
+fit.ar1
+AICc(arima(inflation.bc, order = c(3, 1, 10), method = c("ML"),fixed = c(NA,0,NA,NA,0,NA,NA,0,0,0,0,0,NA),transform.pars = FALSE))
+# 95% CI for coefficient
+c(fit.ar1$coef[1]-1.96*0.1391 ,fit.ar1$coef[1]+1.96*0.1391)
+c(fit.ar1$coef[3]-1.96*0.1275,fit.ar1$coef[3]+1.96*0.1275)
+c(fit.ar1$coef[4]-1.96*0.1481,fit.ar1$coef[4]+1.96*0.1481)
+c(fit.ar1$coef[6]-1.96*0.1204,fit.ar1$coef[6]+1.96*0.1204)
+c(fit.ar1$coef[7]-1.96*0.1197,fit.ar1$coef[7]+1.96*0.1197)
+c(fit.ar1$coef[13]-1.96*0.0977,fit.ar1$coef[13]+1.96*0.0977)
+#Compare with two AICC we know that the original model of AICC is greater than the model that only have six coefficient, so we use second one.
+```
+```{r}
+#stationary and invertiable check
+polyroot(c(1,0.01445695,0,0.2513397))#Find the root of AR part
+polyroot(c(1,-0.3313789,0,-0.7547214,0.118382,0,0,0,0,0,0.1097945))#find the root of MA
+# the absolute value of complex number root of ma part is not within the|1|,so it is invertible.And the absolute value of complex number root of ar part is not within the|1|,so it is stationary. 
+#so we chose this model
+```
+```{r}
+#Model Diagnostics for arima(3,1,10)
+fit1 = arima(inflation.bc, order=c(3,1,10), method="ML")
+# Test for independence of residuals
+#Since the n=111 so the lag=sqrt(111) and here six parameters so fitdf=6.
+res=residuals(fit1)
+Box.test(res,lag = 11,fitdf = 6, type="Ljung")
+Box.test(res,lag = 11,fitdf = 6, type="Box-Pierce")
+Box.test((res)^2,lag = 11,fitdf = 0, type="Ljung")
+#check the sigma^2
+ar(res, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+# Test for normality of residuals
+shapiro.test(residuals(fit1))
+#fitted the residual
+ts.plot(residuals(fit1),main = "Fitted Residuals")
+par(mfrow=c(1,2),oma=c(0,0,2,0))
+# Plot diagnostics of residuals
+op <- par(mfrow=c(2,2))
+# acf
+acf(residuals(fit1),main = "Autocorrelation")
+# pacf
+pacf(residuals(fit1),main = "Partial Autocorrelation")
+# Histogram
+hist(residuals(fit1),main = "Histogram")
+# q-q plot
+qqnorm(residuals(fit1))
+qqline(residuals(fit1),col ="blue")
+# Add overall title
+title("Fitted Residuals Diagnostics", outer=TRUE)
+#From the Box-Ljung test, Box-Pierce test and McLeod-Li test we can saw that the p-value is large than 0.05 so we not Reject WN hypothesis.
+#And the residual are independent then the squares should be uncorrelated
+##From the Shapiro-Wilk normality test and histogram we know that the residual are normality.
+#So we chose this model.
+```
+
+
+```{r}
+#Model Estimation for arima(3,1,12)
+#it<-ar(y1, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+fit.ar<-arima(inflation.bc, order = c(3, 1, 12),method = c("ML"))
+fit.ar
+AICc(arima(inflation.bc, order = c(3, 1, 12), method = c("ML")))
+# 95% CI for coefficient
+c(fit.ar$coef[1]-1.96*0.3353,fit.ar$coef[1]+1.96*0.3353)
+c(fit.ar$coef[2]-1.96*0.1950,fit.ar$coef[2]+1.96*0.1950)
+c(fit.ar$coef[3]-1.96*0.2852,fit.ar$coef[3]+1.96*0.2852)
+c(fit.ar$coef[4]-1.96*0.3379,fit.ar$coef[4]+1.96*0.3379)
+c(fit.ar$coef[5]-1.96*0.2502,fit.ar$coef[5]+1.96*0.2502)
+c(fit.ar$coef[6]-1.96*0.3583,fit.ar$coef[6]+1.96*0.3583)
+c(fit.ar$coef[7]-1.96*0.1539,fit.ar$coef[7]+1.96*0.1539)
+c(fit.ar$coef[8]-1.96*0.1867,fit.ar$coef[8]+1.96*0.1867)
+c(fit.ar$coef[9]-1.96*0.1500,fit.ar$coef[9]+1.96*0.1500)
+c(fit.ar$coef[10]-1.96*0.1885,fit.ar$coef[10]+1.96*0.1885)
+c(fit.ar$coef[11]-1.96*0.1657,fit.ar$coef[11]+1.96*0.1657)
+c(fit.ar$coef[12]-1.96*0.1762,fit.ar$coef[12]+1.96*0.1762)
+c(fit.ar$coef[13]-1.96*0.1518,fit.ar$coef[13]+1.96*0.1518)
+c(fit.ar$coef[14]-1.96*0.1617,fit.ar$coef[14]+1.96*0.1617)
+c(fit.ar$coef[15]-1.96*0.1147,fit.ar$coef[15]+1.96*0.1147)
+#From the 95% cl ar2,ma2,ma4,ma10,ma12 not contain 0.
+fit.ar1<-arima(inflation.bc, order = c(3, 1, 12),method = c("ML"),fixed = c(0,NA,0,0,NA,0,NA,0,0,0,0,0,NA,0,NA),transform.pars = FALSE)
+fit.ar1
+AICc(arima(inflation.bc, order = c(3, 1, 12), method = c("ML"),fixed = c(0,NA,0,0,NA,0,NA,0,0,0,0,0,NA,0,NA),transform.pars = FALSE))
+# 95% CI for coefficient
+c(fit.ar1$coef[2]-1.96*0.2078  ,fit.ar1$coef[2]+1.96*0.2078)
+c(fit.ar1$coef[5]-1.96*0.1969,fit.ar1$coef[5]+1.96*0.1969)
+c(fit.ar1$coef[7]-1.96*0.1002,fit.ar1$coef[7]+1.96*0.1002)
+c(fit.ar1$coef[13]-1.96*0.1178,fit.ar1$coef[13]+1.96*0.1178)
+c(fit.ar1$coef[15]-1.96*0.1542,fit.ar1$coef[15]+1.96*0.1542)
+#Here since coefficient of ma4,12 contain 0 so let try arima(2,10)
+#Here the number of coefficent is larger than lag=11 so can't perfrom Model Diagnostics for arima(3,1,12)
+```
+
+
+```{r}
+#Model Estimation for arima(2,1,10)
+#it<-ar(y1, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+fit.ar<-arima(inflation.bc, order = c(2, 1, 10),method = c("ML"))
+fit.ar
+AICc(arima(inflation.bc, order = c(2, 1, 10), method = c("ML")))
+# 95% CI for coefficient
+c(fit.ar$coef[1]-1.96*0.1800,fit.ar$coef[1]+1.96*0.1800)
+c(fit.ar$coef[2]-1.96*0.1599,fit.ar$coef[2]+1.96*0.1599)
+c(fit.ar$coef[3]-1.96*0.2144,fit.ar$coef[3]+1.96*0.2144)
+c(fit.ar$coef[4]-1.96*0.2026,fit.ar$coef[4]+1.96*0.2026)
+c(fit.ar$coef[5]-1.96*0.1389,fit.ar$coef[5]+1.96*0.1389)
+c(fit.ar$coef[6]-1.96*0.1707,fit.ar$coef[6]+1.96*0.1707)
+c(fit.ar$coef[7]-1.96*0.170,fit.ar$coef[7]+1.96*0.170)
+c(fit.ar$coef[8]-1.96*0.1779,fit.ar$coef[8]+1.96*0.1779)
+c(fit.ar$coef[9]-1.96*0.1907,fit.ar$coef[9]+1.96*0.1907)
+c(fit.ar$coef[10]-1.96*0.2158,fit.ar$coef[10]+1.96*0.2158)
+c(fit.ar$coef[11]-1.96*0.2216,fit.ar$coef[11]+1.96*0.2216)
+c(fit.ar$coef[12]-1.96*0.1613,fit.ar$coef[12]+1.96*0.1613)
+#The coefficient of ar2,ma2,4,ma10,12 not contain 0
+fit.ar1<-arima(inflation.bc, order = c(2, 1, 10),method = c("ML"),fixed = c(0,NA,0,NA,0,0,0,NA,0,0,0,NA),transform.pars = FALSE)
+fit.ar1
+AICc(arima(inflation.bc, order = c(2, 1, 10), method = c("ML"),fixed = c(0,NA,0,NA,0,0,0,NA,0,0,0,NA),transform.pars = FALSE))
+# 95% CI for coefficient
+c(fit.ar1$coef[2]-1.96*0.144  ,fit.ar1$coef[2]+1.96*0.144)
+c(fit.ar1$coef[4]-1.96*0.1450,fit.ar1$coef[4]+1.96*0.1450)
+c(fit.ar1$coef[8]-1.96*0.1751,fit.ar1$coef[8]+1.96*0.1751)
+c(fit.ar1$coef[12]-1.96*0.1391,fit.ar1$coef[12]+1.96*0.1391)
+#Here ma6 contain the 0 so 
+fit.ar2<-arima(inflation.bc, order = c(2, 1, 10),method = c("ML"),fixed = c(0,NA,0,NA,0,0,0,0,0,0,0,NA),transform.pars = FALSE)
+fit.ar2
+AICc(arima(inflation.bc, order = c(2, 1, 10), method = c("ML"),fixed = c(0,NA,0,NA,0,0,0,0,0,0,0,NA),transform.pars = FALSE))
+c(fit.ar2$coef[2]-1.96*0.1194  ,fit.ar2$coef[2]+1.96*0.1194)
+c(fit.ar2$coef[4]-1.96*0.1059,fit.ar2$coef[4]+1.96*0.1059)
+c(fit.ar2$coef[12]-1.96*0.0983,fit.ar2$coef[12]+1.96*0.0983)
+```
+```{r}
+#stationary and invertiable check
+polyroot(c(1,0,-0.4387))#Find the root of AR part
+polyroot(c(1,0,0.6511,0,0,0,0,0,0,0,0.5083))#find the root of MA
+# one of the absolute value of complex number root of ma part is within the|1|,so it is not invertible.And the absolute value of complex number root of ar part is not within the|1|,so it is stationary. 
+#so we not chose this model
+```
+```{r}
+#Model Diagnostics for arima(2,1,10)
+fit1 = arima(inflation.bc, order=c(2,1,10), method="ML")
+# Test for independence of residuals
+#Since the n=111 so the lag=sqrt(111) and here three parameters so fitdf=3.
+res=residuals(fit1)
+Box.test(res,lag = 11,fitdf = 3, type="Ljung")
+Box.test(res,lag = 11,fitdf = 3, type="Box-Pierce")
+Box.test((res)^2,lag = 11,fitdf = 0, type="Ljung-Box")
+# Test for normality of residuals
+shapiro.test(residuals(fit1))
+#check the sigma^2
+ar(res, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+#fitted the residual
+ts.plot(residuals(fit1),main = "Fitted Residuals")
+par(mfrow=c(1,2),oma=c(0,0,2,0))
+# Plot diagnostics of residuals
+op <- par(mfrow=c(2,2))
+# acf
+acf(residuals(fit1),main = "Autocorrelation")
+# pacf
+pacf(residuals(fit1),main = "Partial Autocorrelation")
+# Histogram
+hist(residuals(fit1),main = "Histogram")
+# q-q plot
+qqnorm(residuals(fit1))
+qqline(residuals(fit1),col ="blue")
+# Add overall title
+title("Fitted Residuals Diagnostics", outer=TRUE)
+#From the Box-Ljung test, Box-Pierce test and McLeod-Li test we can saw that the p-value is large than 0.05 so we not Reject WN hypothesis.
+#And the residual are independent then the squares should be uncorrelated
+##From the Shapiro-Wilk normality test and histogram we know that the residual are normality.
+#But this model is not invertiable.
+#So we don't chose this model.
+```
+
+
+```{r}
+
+#There five candidate model arima(0,1,12) with aicc:-503.8041
+#There five candidate model arima(0,1,10) with aicc:-503.9024
+#There five candidate model arima(3,1,10) with aicc:-503.9678
+#There five candidate model arima(10,1,1) with aicc:-511.2733
+#The model arima(10,1,1) has minimize aicc. so we chose model arima(10,1,1)
+#Data Forecasting
+library(astsa)
+mypred =sarima.for(xdata=inflation.bc, p=10, d=1, q=1, P=0, D=0, Q=0, S=0,n.ahead = 10,main="10-Year unemployment Rate")
+ts.plot(inflation_all,main="10-Year unemployment Rate", ylab="unemployment Rate")
+
+```
+
+```{r}
+#conclusion:
+#Conclusion:Compare the first graph and second graph we know that arima
+#(10,1,1) is good model to forecast base on the data we provided.And from 
+#the trend of first graph we know that unemployment rate will continuous 
+#drop as economic recovery.
+
+#reference:
+#“Unemployment Rate.” FRED, 5 Nov. 2021, https://fred.stlouisfed.org/series/UNRATE. 
+
+```
+
+
